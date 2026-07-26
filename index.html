@@ -1,0 +1,686 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no"/>
+<title>Шарик во вращающемся многоугольнике — физическая симуляция</title>
+<script src="https://cdn.jsdelivr.net/npm/@tailwindcss/browser@4"></script>
+<style>
+  html,body{margin:0;height:100%;overflow:hidden;background:#04050a;
+    font-family:ui-sans-serif,system-ui,"Segoe UI",Roboto,Inter,Arial,sans-serif;
+    -webkit-tap-highlight-color:transparent;color:#e2e8f0}
+  #cv{display:block;position:fixed;inset:0;touch-action:none;cursor:grab}
+  #cv.grabbing{cursor:grabbing}
+  .glass{background:rgba(10,14,24,.74);backdrop-filter:blur(16px);-webkit-backdrop-filter:blur(16px);
+    border:1px solid rgba(148,163,184,.18);box-shadow:0 20px 50px -20px rgba(0,0,0,.9)}
+  input[type=range]{-webkit-appearance:none;appearance:none;width:100%;height:4px;border-radius:99px;
+    background:linear-gradient(90deg,#22d3ee,#a78bfa);outline:none;cursor:pointer}
+  input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:15px;height:15px;border-radius:50%;
+    background:#f1f5f9;border:2px solid #0b1220;box-shadow:0 0 10px rgba(34,211,238,.9);cursor:pointer}
+  input[type=range]::-moz-range-thumb{width:13px;height:13px;border-radius:50%;background:#f1f5f9;
+    border:2px solid #0b1220;box-shadow:0 0 10px rgba(34,211,238,.9);cursor:pointer}
+  .btn{transition:.18s;border:1px solid rgba(148,163,184,.2)}
+  .btn:hover{background:rgba(56,189,248,.16);border-color:rgba(56,189,248,.5)}
+  .btn:active{transform:scale(.96)}
+  .on{background:rgba(45,212,191,.18)!important;border-color:rgba(45,212,191,.6)!important;color:#5eead4}
+  .kbd{display:inline-block;padding:0 5px;border-radius:4px;background:rgba(148,163,184,.16);
+    border:1px solid rgba(148,163,184,.28);font-family:ui-monospace,monospace;font-size:10px}
+  #panel::-webkit-scrollbar{width:6px}
+  #panel::-webkit-scrollbar-thumb{background:rgba(148,163,184,.3);border-radius:9px}
+  .num{font-variant-numeric:tabular-nums;font-family:ui-monospace,SFMono-Regular,Menlo,monospace}
+  .fade{animation:f .5s ease both}@keyframes f{from{opacity:0;transform:translateY(-6px)}to{opacity:1}}
+</style>
+</head>
+<body>
+<canvas id="cv"></canvas>
+
+<!-- Заголовок -->
+<div class="fixed top-4 left-4 z-20 pointer-events-none fade">
+  <h1 class="text-[15px] sm:text-lg font-semibold tracking-tight text-slate-100">Шарик во вращающемся многоугольнике</h1>
+  <p class="text-[11px] sm:text-xs text-slate-400 mt-0.5">Импульсная динамика · трение Кулона · гравитация Земли 9.81 м/с²</p>
+</div>
+
+<!-- Телеметрия -->
+<div id="hud" class="fixed bottom-4 left-4 z-20 glass rounded-xl px-3 py-2.5 text-[11px] leading-5 num text-slate-300 pointer-events-none fade">
+  <div class="flex gap-4">
+    <div>
+      <div><span class="text-slate-500">v</span> <span id="hSpd" class="text-cyan-300">0.00</span> м/с</div>
+      <div><span class="text-slate-500">ω<sub>ш</sub></span> <span id="hSpin" class="text-fuchsia-300">0.0</span> рад/с</div>
+    </div>
+    <div>
+      <div><span class="text-slate-500">E<sub>к</sub></span> <span id="hEn" class="text-amber-300">0.00</span> Дж</div>
+      <div><span class="text-slate-500">ω<sub>п</sub></span> <span id="hRot" class="text-emerald-300">0.00</span> об/с</div>
+    </div>
+    <div>
+      <div><span class="text-slate-500">шаров</span> <span id="hN">1</span></div>
+      <div><span class="text-slate-500">fps</span> <span id="hFps">60</span></div>
+    </div>
+  </div>
+</div>
+
+<!-- Кнопка панели -->
+<button id="toggle" class="fixed top-4 right-4 z-30 glass btn rounded-xl w-10 h-10 grid place-items-center text-slate-200">
+  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M4 6h16M4 12h16M4 18h16"/></svg>
+</button>
+
+<!-- Панель управления -->
+<aside id="panel" class="fixed top-16 right-4 z-20 glass rounded-2xl w-[290px] max-h-[calc(100vh-5.5rem)] overflow-y-auto p-4 space-y-4 text-slate-200 fade">
+
+  <section class="space-y-3">
+    <h2 class="text-[11px] uppercase tracking-widest text-cyan-400/80 font-semibold">Многоугольник</h2>
+    <label class="block">
+      <div class="flex justify-between text-xs mb-1"><span class="text-slate-400">Число сторон</span><span id="vSides" class="num text-slate-100">6</span></div>
+      <input id="sides" type="range" min="3" max="14" step="1" value="6">
+    </label>
+    <label class="block">
+      <div class="flex justify-between text-xs mb-1"><span class="text-slate-400">Угловая скорость</span><span id="vSpin" class="num text-slate-100">1.00 рад/с</span></div>
+      <input id="spin" type="range" min="-7" max="7" step="0.05" value="1">
+    </label>
+    <label class="block">
+      <div class="flex justify-between text-xs mb-1"><span class="text-slate-400">Радиус фигуры</span><span id="vSize" class="num text-slate-100">100%</span></div>
+      <input id="size" type="range" min="0.45" max="1.15" step="0.01" value="1">
+    </label>
+  </section>
+
+  <section class="space-y-3 pt-1 border-t border-slate-700/50">
+    <h2 class="text-[11px] uppercase tracking-widest text-fuchsia-400/80 font-semibold pt-2">Физика</h2>
+    <label class="block">
+      <div class="flex justify-between text-xs mb-1"><span class="text-slate-400">Гравитация g</span><span id="vG" class="num text-slate-100">9.81 м/с²</span></div>
+      <input id="g" type="range" min="0" max="30" step="0.01" value="9.81">
+    </label>
+    <label class="block">
+      <div class="flex justify-between text-xs mb-1"><span class="text-slate-400">Упругость e</span><span id="vE" class="num text-slate-100">0.72</span></div>
+      <input id="rest" type="range" min="0" max="1" step="0.01" value="0.72">
+    </label>
+    <label class="block">
+      <div class="flex justify-between text-xs mb-1"><span class="text-slate-400">Трение μ</span><span id="vMu" class="num text-slate-100">0.28</span></div>
+      <input id="fric" type="range" min="0" max="1" step="0.01" value="0.28">
+    </label>
+    <label class="block">
+      <div class="flex justify-between text-xs mb-1"><span class="text-slate-400">Радиус шара</span><span id="vR" class="num text-slate-100">20 px</span></div>
+      <input id="ballR" type="range" min="7" max="48" step="1" value="20">
+    </label>
+    <div class="grid grid-cols-2 gap-2 pt-0.5">
+      <button id="bMagnus" class="btn on rounded-lg py-1.5 text-[11px]">Эффект Магнуса</button>
+      <button id="bVec" class="btn rounded-lg py-1.5 text-[11px]">Векторы v</button>
+    </div>
+  </section>
+
+  <section class="space-y-2 pt-1 border-t border-slate-700/50">
+    <h2 class="text-[11px] uppercase tracking-widest text-amber-400/80 font-semibold pt-2">Управление</h2>
+    <div class="grid grid-cols-2 gap-2">
+      <button id="bAdd" class="btn rounded-lg py-1.5 text-[11px]">+ Шарик</button>
+      <button id="bDel" class="btn rounded-lg py-1.5 text-[11px]">− Шарик</button>
+      <button id="bPause" class="btn rounded-lg py-1.5 text-[11px]">⏸ Пауза</button>
+      <button id="bSlow" class="btn rounded-lg py-1.5 text-[11px]">🐢 Slow-mo</button>
+      <button id="bTrail" class="btn on rounded-lg py-1.5 text-[11px]">Следы</button>
+      <button id="bSnd" class="btn on rounded-lg py-1.5 text-[11px]">🔊 Звук</button>
+      <button id="bReset" class="btn rounded-lg py-1.5 text-[11px] col-span-2 text-rose-300 hover:!bg-rose-500/15 hover:!border-rose-400/50">↺ Сброс сцены</button>
+    </div>
+  </section>
+
+  <section class="pt-1 border-t border-slate-700/50">
+    <p class="text-[10.5px] leading-[1.7] text-slate-400 pt-2">
+      <span class="kbd">ЛКМ</span> по шарику — схватить и бросить<br>
+      <span class="kbd">ЛКМ</span> по фону — раскрутить фигуру<br>
+      <span class="kbd">Колесо</span> — скорость вращения<br>
+      <span class="kbd">2×клик</span> — добавить шарик<br>
+      <span class="kbd">Space</span> пауза · <span class="kbd">R</span> сброс · <span class="kbd">A</span>/<span class="kbd">D</span> шарики · <span class="kbd">↑↓</span> стороны
+    </p>
+  </section>
+</aside>
+
+<script>
+"use strict";
+/* ═════════ ОСНОВА ═════════ */
+const cvs = document.getElementById('cv');
+const ctx = cvs.getContext('2d', {alpha:false});
+let W=0, H=0, DPR=1;
+
+const PX = 100;                                  // пикселей в 1 метре
+const clamp=(v,a,b)=>v<a?a:v>b?b:v;
+const rnd=(a,b)=>a+Math.random()*(b-a);
+const TAU=Math.PI*2;
+
+const P = { sides:6, spin:1.0, g:9.81, rest:0.72, fric:0.28, size:1, ballR:20,
+            magnus:true, vectors:false, trails:true, sound:true, paused:false, slow:false };
+
+const poly = { cx:0, cy:0, R:300, angle:0, omega:1.0, user:false, flash:[] };
+let balls=[], parts=[], shake={x:0,y:0,p:0};
+let hueSeed = 190;
+
+/* ═════════ ГЕОМЕТРИЯ ═════════ */
+function verts(){
+  const n=P.sides, v=new Array(n);
+  for(let i=0;i<n;i++){
+    const a=poly.angle + i*TAU/n;
+    v[i]={x:poly.cx+Math.cos(a)*poly.R, y:poly.cy+Math.sin(a)*poly.R};
+  }
+  return v;
+}
+const apothem=()=>poly.R*Math.cos(Math.PI/P.sides);
+
+function resize(){
+  DPR=Math.min(window.devicePixelRatio||1,2);
+  W=window.innerWidth; H=window.innerHeight;
+  cvs.width=Math.round(W*DPR); cvs.height=Math.round(H*DPR);
+  cvs.style.width=W+'px'; cvs.style.height=H+'px';
+  ctx.setTransform(DPR,0,0,DPR,0,0);
+  poly.cx=W/2; poly.cy=H/2; poly.R=Math.min(W,H)*0.42*P.size;
+}
+window.addEventListener('resize',resize);
+
+/* ═════════ ШАРИКИ ═════════ */
+function makeBall(x,y,r,hue){
+  const m = Math.PI*(r/PX)*(r/PX)*22;            // масса диска, кг (плотность 22 кг/м²)
+  return { x,y, vx:rnd(-160,160), vy:rnd(-60,60), w:rnd(-4,4), a:0,
+           r, m, I:0.5*m*r*r, hue: hue ?? (hueSeed=(hueSeed+67)%360),
+           trail:[], held:false, glow:0 };
+}
+function spawnPoint(r){
+  const lim=Math.max(10, apothem()-r-6);
+  const a=rnd(0,TAU), d=rnd(0,lim*0.65);
+  return {x:poly.cx+Math.cos(a)*d, y:poly.cy+Math.sin(a)*d};
+}
+function addBall(x,y){
+  if(balls.length>=40) return;
+  const k=rnd(0.85,1.15);
+  const r=clamp(P.ballR*k,6,Math.max(6,apothem()-6));
+  if(x===undefined){const p=spawnPoint(r); x=p.x; y=p.y;}
+  const b=makeBall(x,y,r); b.rk=k; balls.push(b);
+}
+function resetScene(){
+  const n=Math.max(1,balls.length); balls=[]; parts=[];
+  for(let i=0;i<n;i++) addBall();
+  poly.angle=0; poly.omega=P.spin;
+}
+
+/* ═════════ ЗВУК ═════════ */
+let AC=null, lastSnd=0;
+function audio(){
+  if(!AC){ try{AC=new (window.AudioContext||window.webkitAudioContext)();}catch(e){} }
+  if(AC && AC.state==='suspended') AC.resume();
+  return AC;
+}
+function hit(strength, r){
+  if(!P.sound||strength<0.06) return;
+  const ac=audio(); if(!ac) return;
+  const t=ac.currentTime; if(t-lastSnd<0.022) return; lastSnd=t;
+  const o=ac.createOscillator(), g=ac.createGain(), f=ac.createBiquadFilter();
+  o.type='sine';
+  const base=clamp(2600/Math.max(r,6),90,900);
+  o.frequency.setValueAtTime(base*rnd(.94,1.08),t);
+  o.frequency.exponentialRampToValueAtTime(base*0.55,t+0.10);
+  f.type='lowpass'; f.frequency.value=2600;
+  g.gain.setValueAtTime(0,t);
+  g.gain.linearRampToValueAtTime(Math.min(0.28,strength*0.3),t+0.005);
+  g.gain.exponentialRampToValueAtTime(0.0008,t+0.16);
+  o.connect(f); f.connect(g); g.connect(ac.destination);
+  o.start(t); o.stop(t+0.18);
+}
+
+/* ═════════ ЧАСТИЦЫ / ОТКЛИК ═════════ */
+function burst(x,y,nx,ny,s,hue){
+  const n=Math.round(clamp(s*16,2,18));
+  for(let i=0;i<n;i++){
+    const sp=rnd(60,420)*(0.35+s), a=Math.atan2(ny,nx)+rnd(-1.15,1.15);
+    parts.push({x,y,vx:Math.cos(a)*sp,vy:Math.sin(a)*sp,life:1,dec:rnd(1.6,3.4),hue,sz:rnd(1,2.6)});
+  }
+  if(parts.length>600) parts.splice(0,parts.length-600);
+}
+function impact(x,y,nx,ny,s,hue,edge){
+  burst(x,y,nx,ny,s,hue);
+  if(edge>=0) poly.flash[edge]=Math.min(1,(poly.flash[edge]||0)+s*1.4);
+  shake.p=Math.min(9,shake.p+s*6);
+  hit(s,18);
+}
+
+/* ═════════ СТОЛКНОВЕНИЕ СО СТЕНКОЙ ═════════ */
+function wallResponse(b,cx,cy,nx,ny,pen,edge){
+  // 1) позиционная коррекция (выталкивание из стенки)
+  const push=Math.min(pen, b.r*1.4);
+  b.x+=nx*push; b.y+=ny*push;
+
+  // 2) скорость точки стенки: v = ω × r
+  const rx=cx-poly.cx, ry=cy-poly.cy;
+  const wvx=-poly.omega*ry, wvy=poly.omega*rx;
+
+  // 3) относительная скорость в точке контакта (с учётом собственного вращения шара)
+  const crx=-nx*b.r, cry=-ny*b.r;                 // вектор от центра шара к точке контакта
+  let rvx=b.vx - b.w*cry - wvx;
+  let rvy=b.vy + b.w*crx - wvy;
+  const vn=rvx*nx+rvy*ny;
+  if(vn>0) return;                                // уже расходятся
+
+  // 4) нормальный импульс с коэффициентом восстановления
+  let e=P.rest;
+  const sp=-vn;
+  if(sp<70) e*=sp/70;                             // гашение «дребезга» на малых скоростях
+  const jn=-(1+e)*vn*b.m;
+  b.vx+=jn*nx/b.m; b.vy+=jn*ny/b.m;
+
+  // 5) касательный импульс — сухое трение Кулона (даёт закрутку и качение)
+  let tx=rvx-vn*nx, ty=rvy-vn*ny;
+  const tl=Math.hypot(tx,ty);
+  if(tl>1e-6 && P.fric>0){
+    tx/=tl; ty/=tl;
+    const rXt=crx*ty-cry*tx;
+    const invT=1/b.m + rXt*rXt/b.I;
+    let jt=-tl/invT;
+    const mx=P.fric*Math.abs(jn);
+    jt=clamp(jt,-mx,mx);
+    b.vx+=jt*tx/b.m; b.vy+=jt*ty/b.m;
+    b.w+=(crx*(jt*ty)-cry*(jt*tx))/b.I;
+  }
+  const s=clamp(sp/850,0,1);
+  if(sp>55){ impact(cx,cy,nx,ny,s,b.hue,edge); b.glow=Math.max(b.glow,s); }
+}
+
+function collideWalls(b,V){
+  const n=V.length;
+  for(let i=0;i<n;i++){
+    const A=V[i], B=V[(i+1)%n];
+    let ex=B.x-A.x, ey=B.y-A.y;
+    const el=Math.hypot(ex,ey); if(el<1e-6) continue;
+    let nx=-ey/el, ny=ex/el;                                   // внутренняя нормаль
+    if((poly.cx-A.x)*nx+(poly.cy-A.y)*ny<0){nx=-nx;ny=-ny;}
+    const d=(b.x-A.x)*nx+(b.y-A.y)*ny;                         // знаковое расстояние до прямой
+    if(d>b.r) continue;
+    let t=((b.x-A.x)*ex+(b.y-A.y)*ey)/(el*el); t=clamp(t,0,1);
+    const cx=A.x+ex*t, cy=A.y+ey*t;
+    let dx=b.x-cx, dy=b.y-cy, dist=Math.hypot(dx,dy), Nx,Ny,pen;
+    if(d>0 && dist>1e-6){                                      // контакт с ребром/вершиной изнутри
+      Nx=dx/dist; Ny=dy/dist; pen=b.r-dist;
+      if(pen<=0) continue;
+    }else{ Nx=nx; Ny=ny; pen=b.r-d; }                          // центр вышел за стенку
+    wallResponse(b,cx,cy,Nx,Ny,pen,i);
+  }
+}
+
+/* ═════════ СТОЛКНОВЕНИЕ ШАРОВ ═════════ */
+function collideBalls(A,B){
+  let dx=B.x-A.x, dy=B.y-A.y;
+  let d=Math.hypot(dx,dy); const rr=A.r+B.r;
+  if(d>=rr||d<1e-9) return;
+  const nx=dx/d, ny=dy/d, pen=rr-d;
+  const im1=A.held?0:1/A.m, im2=B.held?0:1/B.m, ims=im1+im2;
+  if(ims<=0) return;
+  A.x-=nx*pen*(im1/ims); A.y-=ny*pen*(im1/ims);
+  B.x+=nx*pen*(im2/ims); B.y+=ny*pen*(im2/ims);
+
+  const c1x=nx*A.r, c1y=ny*A.r, c2x=-nx*B.r, c2y=-ny*B.r;
+  let rvx=(B.vx-B.w*c2y)-(A.vx-A.w*c1y);
+  let rvy=(B.vy+B.w*c2x)-(A.vy+A.w*c1x);
+  const vn=rvx*nx+rvy*ny;
+  if(vn>0) return;
+  let e=P.rest; const sp=-vn; if(sp<70) e*=sp/70;
+  const jn=-(1+e)*vn/ims;
+  A.vx-=jn*nx*im1; A.vy-=jn*ny*im1;
+  B.vx+=jn*nx*im2; B.vy+=jn*ny*im2;
+
+  let tx=rvx-vn*nx, ty=rvy-vn*ny; const tl=Math.hypot(tx,ty);
+  if(tl>1e-6&&P.fric>0){
+    tx/=tl; ty/=tl;
+    const r1=c1x*ty-c1y*tx, r2=c2x*ty-c2y*tx;
+    const invT=ims + r1*r1/A.I + r2*r2/B.I;
+    let jt=clamp(-tl/invT, -P.fric*Math.abs(jn), P.fric*Math.abs(jn));
+    A.vx-=jt*tx*im1; A.vy-=jt*ty*im1; A.w-=(c1x*(jt*ty)-c1y*(jt*tx))/A.I;
+    B.vx+=jt*tx*im2; B.vy+=jt*ty*im2; B.w+=(c2x*(jt*ty)-c2y*(jt*tx))/B.I;
+  }
+  const s=clamp(sp/850,0,1);
+  if(sp>55){ burst(A.x+nx*A.r, A.y+ny*A.r, nx,ny,s*0.7,(A.hue+B.hue)/2); hit(s*0.7,(A.r+B.r)/2); }
+}
+
+/* ═════════ ШАГ СИМУЛЯЦИИ ═════════ */
+function step(h){
+  // вращение фигуры: пользовательский захват или «мотор» к заданной скорости
+  if(!poly.user) poly.omega += (P.spin-poly.omega)*(1-Math.exp(-h/0.55));
+  poly.angle += poly.omega*h;
+  if(poly.angle>TAU) poly.angle-=TAU; else if(poly.angle<-TAU) poly.angle+=TAU;
+
+  const gpx=P.g*PX, V=verts();
+
+  for(const b of balls){
+    if(b.held){ b.w*=Math.exp(-2.0*h); b.a+=b.w*h; continue; }
+    // гравитация
+    b.vy += gpx*h;
+    // эффект Магнуса (сила от вращения при движении в воздухе)
+    if(P.magnus && Math.abs(b.w)>0.05){
+      const cm=0.0020*(b.r/20);
+      let mx=cm*b.w*b.vy, my=-cm*b.w*b.vx;
+      const ml=Math.hypot(mx,my), lim=gpx*1.6;
+      if(ml>lim){mx*=lim/ml; my*=lim/ml;}
+      b.vx+=mx*h; b.vy+=my*h;
+    }
+    // сопротивление воздуха и вязкое торможение вращения
+    const drag=Math.exp(-0.10*h), rd=Math.exp(-0.45*h);
+    b.vx*=drag; b.vy*=drag; b.w*=rd;
+    // ограничение скорости (устойчивость)
+    const sp=Math.hypot(b.vx,b.vy), MAX=45*PX;
+    if(sp>MAX){ b.vx*=MAX/sp; b.vy*=MAX/sp; }
+    // интегрирование
+    b.x+=b.vx*h; b.y+=b.vy*h; b.a+=b.w*h;
+  }
+
+  for(let i=0;i<balls.length;i++)
+    for(let j=i+1;j<balls.length;j++) collideBalls(balls[i],balls[j]);
+
+  for(const b of balls){
+    if(b.held){ keepInside(b,V); continue; }
+    collideWalls(b,V);
+  }
+}
+// удержание схваченного шара внутри фигуры
+function keepInside(b,V){
+  for(let i=0;i<V.length;i++){
+    const A=V[i], B=V[(i+1)%V.length];
+    let ex=B.x-A.x, ey=B.y-A.y; const el=Math.hypot(ex,ey); if(el<1e-6) continue;
+    let nx=-ey/el, ny=ex/el;
+    if((poly.cx-A.x)*nx+(poly.cy-A.y)*ny<0){nx=-nx;ny=-ny;}
+    const d=(b.x-A.x)*nx+(b.y-A.y)*ny;
+    if(d<b.r){ b.x+=nx*(b.r-d); b.y+=ny*(b.r-d); }
+  }
+}
+
+/* ═════════ ОТРИСОВКА ═════════ */
+function drawBG(){
+  ctx.fillStyle='#04050a'; ctx.fillRect(0,0,W,H);
+  const g=ctx.createRadialGradient(poly.cx,poly.cy,0,poly.cx,poly.cy,Math.max(W,H)*0.72);
+  g.addColorStop(0,'rgba(30,64,120,0.30)');
+  g.addColorStop(0.45,'rgba(20,20,60,0.16)');
+  g.addColorStop(1,'rgba(4,5,10,0)');
+  ctx.fillStyle=g; ctx.fillRect(0,0,W,H);
+}
+function polyPath(V){
+  ctx.beginPath(); ctx.moveTo(V[0].x,V[0].y);
+  for(let i=1;i<V.length;i++) ctx.lineTo(V[i].x,V[i].y);
+  ctx.closePath();
+}
+function drawPolygon(V,dt){
+  // внутренняя заливка + вращающаяся сетка (визуализация вращения)
+  ctx.save(); polyPath(V); ctx.clip();
+  const gi=ctx.createRadialGradient(poly.cx,poly.cy,poly.R*0.05,poly.cx,poly.cy,poly.R);
+  gi.addColorStop(0,'rgba(56,189,248,0.075)');
+  gi.addColorStop(1,'rgba(139,92,246,0.035)');
+  ctx.fillStyle=gi; polyPath(V); ctx.fill();
+  ctx.strokeStyle='rgba(148,197,255,0.075)'; ctx.lineWidth=1;
+  for(let k=0;k<P.sides*2;k++){
+    const a=poly.angle+k*Math.PI/P.sides;
+    ctx.beginPath(); ctx.moveTo(poly.cx,poly.cy);
+    ctx.lineTo(poly.cx+Math.cos(a)*poly.R, poly.cy+Math.sin(a)*poly.R); ctx.stroke();
+  }
+  ctx.strokeStyle='rgba(148,197,255,0.06)';
+  for(let k=1;k<=3;k++){ ctx.beginPath(); ctx.arc(poly.cx,poly.cy,poly.R*k/3.4,0,TAU); ctx.stroke(); }
+  ctx.restore();
+
+  // рёбра со вспышками при ударе
+  ctx.lineCap='round';
+  for(let i=0;i<V.length;i++){
+    const A=V[i], B=V[(i+1)%V.length];
+    const f=poly.flash[i]||0;
+    ctx.beginPath(); ctx.moveTo(A.x,A.y); ctx.lineTo(B.x,B.y);
+    ctx.lineWidth=2.4+f*5;
+    ctx.strokeStyle=`rgba(${125+f*130},${215+f*40},255,${0.60+f*0.4})`;
+    ctx.shadowColor=`rgba(56,189,248,${0.55+f*0.45})`; ctx.shadowBlur=14+f*34;
+    ctx.stroke();
+    poly.flash[i]=Math.max(0,f-dt*2.6);
+  }
+  ctx.shadowBlur=0;
+  // вершины
+  for(const p of V){
+    ctx.beginPath(); ctx.arc(p.x,p.y,3.4,0,TAU);
+    ctx.fillStyle='#bae6fd'; ctx.shadowColor='#38bdf8'; ctx.shadowBlur=16; ctx.fill();
+  }
+  ctx.shadowBlur=0;
+  // центр вращения
+  ctx.beginPath(); ctx.arc(poly.cx,poly.cy,2.5,0,TAU);
+  ctx.fillStyle='rgba(226,232,240,.5)'; ctx.fill();
+}
+function drawTrails(){
+  if(!P.trails) return;
+  ctx.globalCompositeOperation='lighter';
+  for(const b of balls){
+    const T=b.trail, n=T.length;
+    for(let i=1;i<n;i++){
+      const k=i/n;
+      ctx.beginPath(); ctx.moveTo(T[i-1].x,T[i-1].y); ctx.lineTo(T[i].x,T[i].y);
+      ctx.lineWidth=b.r*0.75*k;
+      ctx.strokeStyle=`hsla(${b.hue},95%,65%,${0.20*k})`;
+      ctx.stroke();
+    }
+  }
+  ctx.globalCompositeOperation='source-over';
+}
+function drawBalls(dt){
+  for(const b of balls){
+    // свечение удара
+    if(b.glow>0){
+      ctx.beginPath(); ctx.arc(b.x,b.y,b.r*(1.6+b.glow*1.5),0,TAU);
+      ctx.fillStyle=`hsla(${b.hue},100%,70%,${0.16*b.glow})`; ctx.fill();
+      b.glow=Math.max(0,b.glow-dt*2.2);
+    }
+    ctx.save(); ctx.translate(b.x,b.y);
+    ctx.shadowColor=`hsla(${b.hue},95%,60%,.95)`; ctx.shadowBlur=b.held?38:20;
+    const g=ctx.createRadialGradient(-b.r*0.35,-b.r*0.4,b.r*0.08,0,0,b.r);
+    g.addColorStop(0,`hsl(${b.hue},100%,86%)`);
+    g.addColorStop(0.45,`hsl(${b.hue},92%,60%)`);
+    g.addColorStop(1,`hsl(${(b.hue+22)%360},85%,34%)`);
+    ctx.beginPath(); ctx.arc(0,0,b.r,0,TAU); ctx.fillStyle=g; ctx.fill();
+    ctx.shadowBlur=0;
+    // маркеры собственного вращения
+    ctx.rotate(b.a);
+    ctx.strokeStyle='rgba(6,10,20,.45)'; ctx.lineWidth=Math.max(1.2,b.r*0.13);
+    ctx.beginPath(); ctx.arc(0,0,b.r*0.58,-0.9,0.9); ctx.stroke();
+    ctx.beginPath(); ctx.arc(0,0,b.r*0.58,Math.PI-0.9,Math.PI+0.9); ctx.stroke();
+    ctx.beginPath(); ctx.arc(b.r*0.55,0,Math.max(1.3,b.r*0.13),0,TAU);
+    ctx.fillStyle='rgba(255,255,255,.85)'; ctx.fill();
+    ctx.restore();
+    // блик
+    ctx.beginPath(); ctx.arc(b.x-b.r*0.33,b.y-b.r*0.36,b.r*0.20,0,TAU);
+    ctx.fillStyle='rgba(255,255,255,.55)'; ctx.fill();
+    // вектор скорости
+    if(P.vectors){
+      const s=0.14, vx=b.vx*s, vy=b.vy*s, l=Math.hypot(vx,vy);
+      if(l>4){
+        const ux=vx/l, uy=vy/l;
+        ctx.beginPath(); ctx.moveTo(b.x,b.y); ctx.lineTo(b.x+vx,b.y+vy);
+        ctx.strokeStyle='rgba(94,234,212,.9)'; ctx.lineWidth=2; ctx.stroke();
+        ctx.beginPath();
+        ctx.moveTo(b.x+vx,b.y+vy);
+        ctx.lineTo(b.x+vx-ux*9+uy*5, b.y+vy-uy*9-ux*5);
+        ctx.lineTo(b.x+vx-ux*9-uy*5, b.y+vy-uy*9+ux*5);
+        ctx.closePath(); ctx.fillStyle='rgba(94,234,212,.9)'; ctx.fill();
+      }
+    }
+  }
+}
+function drawParts(dt){
+  ctx.globalCompositeOperation='lighter';
+  for(let i=parts.length-1;i>=0;i--){
+    const p=parts[i];
+    p.vy+=P.g*PX*0.55*dt; p.vx*=0.985; p.vy*=0.985;
+    p.x+=p.vx*dt; p.y+=p.vy*dt; p.life-=p.dec*dt;
+    if(p.life<=0){ parts.splice(i,1); continue; }
+    ctx.beginPath(); ctx.arc(p.x,p.y,p.sz*p.life+0.4,0,TAU);
+    ctx.fillStyle=`hsla(${p.hue},100%,72%,${p.life*0.85})`; ctx.fill();
+  }
+  ctx.globalCompositeOperation='source-over';
+}
+
+/* ═════════ ЦИКЛ ═════════ */
+let last=performance.now(), fps=60, hudT=0;
+function frame(now){
+  let dt=(now-last)/1000; last=now;
+  dt=Math.min(dt,1/25);
+  fps+=((1/Math.max(dt,1e-4))-fps)*0.08;
+
+  if(!P.paused){
+    const sim=dt*(P.slow?0.22:1);
+    const steps=clamp(Math.ceil(sim/(1/300)),1,12), h=sim/steps;
+    for(let s=0;s<steps;s++) step(h);
+    for(const b of balls){
+      b.trail.push({x:b.x,y:b.y});
+      if(b.trail.length>34) b.trail.shift();
+    }
+  }
+
+  // тряска камеры
+  shake.p*=Math.exp(-dt*7);
+  shake.x=rnd(-1,1)*shake.p; shake.y=rnd(-1,1)*shake.p;
+
+  drawBG();
+  ctx.save(); ctx.translate(shake.x,shake.y);
+  const V=verts();
+  drawPolygon(V,dt);
+  drawTrails();
+  drawParts(dt);
+  drawBalls(dt);
+  ctx.restore();
+
+  hudT+=dt;
+  if(hudT>0.12){
+    hudT=0;
+    const b=balls[0];
+    if(b){
+      const v=Math.hypot(b.vx,b.vy)/PX, rm=b.r/PX;
+      const E=0.5*b.m*v*v + 0.5*(0.5*b.m*rm*rm)*b.w*b.w;
+      hSpd.textContent=v.toFixed(2);
+      hSpin.textContent=b.w.toFixed(1);
+      hEn.textContent=E.toFixed(2);
+    }
+    hRot.textContent=(poly.omega/TAU).toFixed(2);
+    hN.textContent=balls.length;
+    hFps.textContent=Math.round(fps);
+  }
+  requestAnimationFrame(frame);
+}
+
+/* ═════════ ВЗАИМОДЕЙСТВИЕ ═════════ */
+const ptr={x:0,y:0,px:0,py:0,vx:0,vy:0,down:false,mode:null,ball:null,ang:0,t:0};
+function pos(e){ const r=cvs.getBoundingClientRect(); return {x:e.clientX-r.left, y:e.clientY-r.top}; }
+function wrapAng(a){ while(a>Math.PI)a-=TAU; while(a<-Math.PI)a+=TAU; return a; }
+
+cvs.addEventListener('pointerdown',e=>{
+  cvs.setPointerCapture(e.pointerId); audio();
+  const p=pos(e); ptr.x=ptr.px=p.x; ptr.y=ptr.py=p.y; ptr.vx=ptr.vy=0; ptr.down=true; ptr.t=performance.now();
+  let best=null, bd=1e9;
+  for(const b of balls){ const d=Math.hypot(b.x-p.x,b.y-p.y); if(d<b.r+16 && d<bd){bd=d;best=b;} }
+  if(best){ ptr.mode='ball'; ptr.ball=best; best.held=true; best.trail.length=0; }
+  else { ptr.mode='spin'; poly.user=true; ptr.ang=Math.atan2(p.y-poly.cy,p.x-poly.cx); }
+  cvs.classList.add('grabbing');
+});
+cvs.addEventListener('pointermove',e=>{
+  const p=pos(e); const now=performance.now();
+  const dt=Math.max((now-ptr.t)/1000,1/240); ptr.t=now;
+  ptr.px=ptr.x; ptr.py=ptr.y; ptr.x=p.x; ptr.y=p.y;
+  const ivx=(ptr.x-ptr.px)/dt, ivy=(ptr.y-ptr.py)/dt;
+  ptr.vx=ptr.vx*0.55+ivx*0.45; ptr.vy=ptr.vy*0.55+ivy*0.45;
+  if(!ptr.down) return;
+  if(ptr.mode==='ball'&&ptr.ball){
+    const b=ptr.ball;
+    b.x=p.x; b.y=p.y;
+    b.vx=clamp(ptr.vx,-4200,4200); b.vy=clamp(ptr.vy,-4200,4200);
+  }else if(ptr.mode==='spin'){
+    const a=Math.atan2(p.y-poly.cy,p.x-poly.cx);
+    const d=wrapAng(a-ptr.ang); ptr.ang=a;
+    poly.angle+=d;
+    poly.omega=clamp(poly.omega*0.45 + (d/dt)*0.55,-40,40);
+  }
+});
+function release(){
+  if(ptr.mode==='ball'&&ptr.ball){
+    const b=ptr.ball; b.held=false;
+    b.vx=clamp(ptr.vx,-3600,3600); b.vy=clamp(ptr.vy,-3600,3600);
+    b.w=clamp(b.w-ptr.vx*0.0025,-60,60);
+  }
+  poly.user=false; ptr.down=false; ptr.mode=null; ptr.ball=null;
+  cvs.classList.remove('grabbing');
+}
+cvs.addEventListener('pointerup',release);
+cvs.addEventListener('pointercancel',release);
+window.addEventListener('blur',()=>{ if(ptr.down) release(); });
+cvs.addEventListener('dblclick',e=>{
+  const p=pos(e);
+  if(Math.hypot(p.x-poly.cx,p.y-poly.cy)<apothem()-P.ballR-4) addBall(p.x,p.y);
+});
+cvs.addEventListener('wheel',e=>{
+  e.preventDefault();
+  P.spin=clamp(P.spin - e.deltaY*0.0022, -7, 7);
+  spin.value=P.spin; vSpin.textContent=P.spin.toFixed(2)+' рад/с';
+},{passive:false});
+cvs.addEventListener('contextmenu',e=>e.preventDefault());
+
+/* ═════════ UI ═════════ */
+const $=id=>document.getElementById(id);
+function bindRange(id,fn,fmt){
+  const el=$(id); el.addEventListener('input',()=>{ fn(parseFloat(el.value)); fmt(parseFloat(el.value)); });
+}
+bindRange('sides',v=>{P.sides=v|0; poly.flash=new Array(P.sides).fill(0);},v=>vSides.textContent=v|0);
+bindRange('spin', v=>P.spin=v, v=>vSpin.textContent=v.toFixed(2)+' рад/с');
+bindRange('size', v=>{P.size=v; poly.R=Math.min(W,H)*0.42*v;}, v=>vSize.textContent=Math.round(v*100)+'%');
+bindRange('g',    v=>P.g=v,    v=>vG.textContent=v.toFixed(2)+' м/с²');
+bindRange('rest', v=>P.rest=v, v=>vE.textContent=v.toFixed(2));
+bindRange('fric', v=>P.fric=v, v=>vMu.textContent=v.toFixed(2));
+bindRange('ballR',v=>{
+  P.ballR=v;
+  const lim=Math.max(6,apothem()-4);
+  for(const b of balls){                       // применяем к существующим шарам
+    b.r=clamp(v*(b.rk||(b.rk=rnd(0.85,1.15))),6,lim);
+    b.m=Math.PI*(b.r/PX)*(b.r/PX)*22;
+    b.I=0.5*b.m*b.r*b.r;
+  }
+},v=>vR.textContent=(v|0)+' px');
+
+function toggleBtn(id,key,label){
+  const el=$(id);
+  el.addEventListener('click',()=>{
+    P[key]=!P[key]; el.classList.toggle('on',P[key]);
+    if(label) el.textContent=label(P[key]);
+    if(key==='sound'&&P.sound) audio();
+  });
+}
+toggleBtn('bMagnus','magnus');
+toggleBtn('bVec','vectors');
+toggleBtn('bTrail','trails');
+toggleBtn('bSnd','sound',v=>v?'🔊 Звук':'🔇 Звук');
+toggleBtn('bSlow','slow',v=>v?'🐢 Slow-mo':'🐢 Slow-mo');
+$('bPause').addEventListener('click',()=>{
+  P.paused=!P.paused;
+  $('bPause').classList.toggle('on',P.paused);
+  $('bPause').textContent=P.paused?'▶ Продолжить':'⏸ Пауза';
+});
+$('bAdd').addEventListener('click',()=>addBall());
+$('bDel').addEventListener('click',()=>{ if(balls.length>1) balls.pop(); });
+$('bReset').addEventListener('click',resetScene);
+
+const panel=$('panel');
+$('toggle').addEventListener('click',()=>panel.classList.toggle('hidden'));
+if(window.innerWidth<820) panel.classList.add('hidden');
+
+window.addEventListener('keydown',e=>{
+  const k=e.key.toLowerCase();
+  if(e.code==='Space'){ e.preventDefault(); $('bPause').click(); }
+  else if(k==='r'){ resetScene(); }
+  else if(k==='a'||k==='ф'){ addBall(); }
+  else if(k==='d'||k==='в'){ if(balls.length>1) balls.pop(); }
+  else if(k==='s'||k==='ы'){ $('bSnd').click(); }
+  else if(k==='h'||k==='р'){ panel.classList.toggle('hidden'); }
+  else if(e.key==='ArrowUp'||e.key==='ArrowDown'){
+    e.preventDefault();
+    P.sides=clamp(P.sides+(e.key==='ArrowUp'?1:-1),3,14);
+    poly.flash=new Array(P.sides).fill(0);
+    $('sides').value=P.sides; vSides.textContent=P.sides;
+  }
+});
+
+/* ═════════ СТАРТ ═════════ */
+resize();
+poly.flash=new Array(P.sides).fill(0);
+poly.omega=P.spin;
+addBall(poly.cx, poly.cy-poly.R*0.35);
+addBall(poly.cx+70, poly.cy-poly.R*0.15);
+addBall(poly.cx-80, poly.cy-poly.R*0.05);
+requestAnimationFrame(t=>{last=t; requestAnimationFrame(frame);});
+</script>
+</body>
+</html>
